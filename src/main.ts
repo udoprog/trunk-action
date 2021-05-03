@@ -11,6 +11,8 @@ const USER_AGENT = 'udoprog/trunk-action';
 const IS_WINDOWS = process.platform === 'win32'
 const IS_MAC = process.platform === 'darwin'
 
+const WASM_BINDGEN_TOOLS = ['wasm2es6js', 'wasm-bindgen', 'wasm-bindgen-test-runner'];
+
 async function findVersion(repo: string, key: string): Promise<string> {
     const version = core.getInput(key);
 
@@ -52,8 +54,10 @@ async function downloadWasmBindgen(tag: string) {
     let toolPath = path.join(await tc.extractTar(tool), name);
 
     if (!IS_WINDOWS) {
-        const exe = path.join(toolPath, 'wasm-bindgen');
-        await fs.chmod(exe, 0o755);
+        for (let tool of WASM_BINDGEN_TOOLS) {
+            const exe = path.join(toolPath, tool);
+            await fs.chmod(exe, 0o755);
+        }
     }
 
     return Promise.resolve(toolPath);
@@ -101,20 +105,57 @@ async function downloadTrunk(tag: string): Promise<string> {
 }
 
 /**
- * Expand the current PATH while adding `p` to it.
+ * Download and return the path to an executable wasm-bindgen tool.
+ *
+ * @param tag The tag to download.
+ */
+async function downloadBinaryen(tag: string) {
+    let platform;
+
+    if (IS_WINDOWS) {
+        platform = 'x86_64-windows';
+    } else if (IS_MAC) {
+        platform = 'x86_64-macos';
+    } else {
+        platform = 'x86_64-linux';
+    }
+
+    const name = `binaryen-${tag}-${platform}`;
+    const url = `https://github.com/WebAssembly/binaryen/releases/download/${tag}/${name}.tar.gz`;
+
+    const tool = await tc.downloadTool(url);
+    let toolPath = path.join(await tc.extractTar(tool), `binaryen-${tag}`, 'bin');
+
+    if (!IS_WINDOWS) {
+        const files = await fs.readdir(toolPath);
+
+        for (let exe of files) {
+          await fs.chmod(path.join(toolPath, exe), 0o755);
+        }
+    }
+
+    return Promise.resolve(toolPath);
+}
+
+/**
+ * Expand the current PATH while adding the specified `paths` to it.
  *
  * @param p Path to add.
  * @returns The expanded PATH.
  */
-function expandPath(p: string): string {
-    if (!process.env.PATH) {
-        return `${p}`;
+function expandPath(...paths: string[]): string {
+    let sep;
+
+    if (IS_WINDOWS) {
+        sep = ';';
     } else {
-        if (IS_WINDOWS) {
-            return `${process.env.PATH};${p}`;
-        } else {
-            return `${process.env.PATH}:${p}`;
-        }
+        sep = ':';
+    }
+
+    if (!process.env.PATH) {
+        return paths.join(sep);
+    } else {
+        return `${process.env.PATH}${sep}${paths.join(sep)}`;
     }
 }
 
@@ -132,16 +173,19 @@ async function innerMain() {
     const trunkPath = await downloadTrunk(trunkTag);
     core.info(`Downloaded to ${trunkPath}`);
 
+    const binaryenTag = await findVersion('WebAssembly/binaryen', 'binaryen-version');
+    core.info(`Downloading 'binaryen' from tag '${binaryenTag}'`);
+    const binaryenPath = await downloadBinaryen(binaryenTag);
+    core.info(`Downloaded to ${binaryenPath}`);
+
     core.info(`Running: ${trunkPath} ${inputArgs}`);
 
-    const expandedPath = await expandPath(wasmBindgenPath);
+    const expandedPath = await expandPath(wasmBindgenPath, binaryenPath);
 
     let n = await exec.exec(
         trunkPath,
         args,
-        {
-            env: {'PATH': expandedPath}
-        }
+        {env: {'PATH': expandedPath}}
     );
 
     if (n !== 0) {
