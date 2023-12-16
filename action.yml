@@ -7,13 +7,7 @@ inputs:
     description: 'The arguments to pass to `trunk`. Defaults to "build --release".'
     default: 'build --release'
   version:
-    description: 'Version of wasm-bindgen to install like "v0.11.0". Defaults to "latest".'
-    default: 'latest'
-  wasm-bindgen-version:
-    description: 'Version of wasm-bindgen to install like "0.2.73". Defaults to "latest".'
-    default: 'latest'
-  binaryen-version:
-    description: 'Version of binaryen tools to install like "version_101". Defaults to "latest".'
+    description: 'Version of trunk to install like "v0.18.0". Defaults to "latest".'
     default: 'latest'
 
 runs:
