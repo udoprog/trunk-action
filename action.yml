@@ -6,6 +6,9 @@ inputs:
   args:
     description: 'The arguments to pass to `trunk`. Defaults to "build --release".'
     default: 'build --release'
+  repo:
+    description: 'The github repository to install trunk from.'
+    default: 'trunk-rs/trunk'
   version:
     description: 'Version of trunk to install like "v0.18.0". Defaults to "latest".'
     default: 'latest'

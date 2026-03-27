@@ -6,30 +6,41 @@ import * as path from 'path';
 import * as exec from '@actions/exec';
 import stringArgv from "string-argv";
 
+const DEFAULT_REPO: string = 'trunk-rs/trunk';
+const GITHUB_URL: string = 'https://github.com';
+const GITHUB_API_URL: string = 'https://api.github.com/repos';
+
 // NB: https://github.com/trunk-rs/trunk/issues/632
-const GZIP_OVERRIDES: {[key: string]: boolean} = {
+const GZIP_OVERRIDES: { [key: string]: boolean } = {
     'v0.18.0': true,
 };
 
 const USER_AGENT = 'udoprog/trunk-action';
-
 const IS_WINDOWS = process.platform === 'win32'
 const IS_MAC = process.platform === 'darwin'
 
-async function findVersion(repo: string, key: string): Promise<string> {
-    const version = core.getInput(key);
-
+/**
+ * Find the version to download. If the version is "latest", this will query the
+ * releases URL for the latest version.
+ * 
+ * @param repo The repository to query for releases, like "trunk-rs/trunk".
+ * @param version The version to find. If "latest", the latest release will be returned.
+ * @returns The resolved version string.
+ */
+async function findVersion(repo: string, version: string): Promise<string> {
     if (version !== 'latest') {
         return version;
     }
-
-    core.info(`Searching the latest version of ${repo} ...`);
 
     const http = new httpm.HttpClient(USER_AGENT, [], {
         allowRetries: false
     });
 
-    const response = await http.get(`https://api.github.com/repos/${repo}/releases/latest`);
+    const url = `${GITHUB_API_URL}/${repo}/releases/latest`;
+
+    core.info(`Fetching ${url}`);
+
+    const response = await http.get(url);
     const body = await response.readBody();
     return Promise.resolve(JSON.parse(body).tag_name);
 }
@@ -37,9 +48,10 @@ async function findVersion(repo: string, key: string): Promise<string> {
 /**
  * Download and return the path to an executable trunk tool.
  *
+ * @param repo The repository to download from.
  * @param tag The tag to download.
  */
-async function downloadTrunk(tag: string): Promise<string> {
+async function downloadRelease(repo: string, tag: string): Promise<string> {
     let platform;
     let zip = false;
 
@@ -53,7 +65,10 @@ async function downloadTrunk(tag: string): Promise<string> {
     }
 
     const name = `trunk-${platform}`;
-    const url = `https://github.com/thedodd/trunk/releases/download/${tag}/${name}`;
+    const url = `${GITHUB_URL}/${repo}/releases/download/${tag}/${name}`;
+
+    core.info(`Downloading ${url}`);
+
     const tool = await tc.downloadTool(url);
     let toolPath;
 
@@ -79,18 +94,29 @@ async function downloadTrunk(tag: string): Promise<string> {
     return Promise.resolve(exe);
 }
 
+function orDefault(value: string, defaultValue: string): string {
+    if (value === '') {
+        return defaultValue;
+    }
+
+    return value;
+}
+
 async function innerMain() {
-    const inputArgs = core.getInput('args');
-    const args = stringArgv(inputArgs);
+    const repo = orDefault(core.getInput('repo'), DEFAULT_REPO);
+    const args = stringArgv(core.getInput('args'));
+    const version = orDefault(core.getInput('version'), 'latest');
 
-    const trunkTag = await findVersion('thedodd/trunk', 'version');
-    core.info(`Downloading 'trunk' from tag '${trunkTag}'`);
-    const trunkPath = await downloadTrunk(trunkTag);
-    core.info(`Downloaded to ${trunkPath}`);
+    core.info(`Using repository ${repo}`);
 
-    core.info(`Running: ${trunkPath} ${inputArgs}`);
+    const tag = await findVersion(repo, version);
+    core.info(`Downloading 'trunk' from tag '${tag}'`);
 
-    let n = await exec.exec(trunkPath, args);
+    const path = await downloadRelease(repo, tag);
+    core.info(`Downloaded to ${path}`);
+
+    core.info(`${path} ${args.join(' ')}`);
+    let n = await exec.exec(path, args);
 
     if (n !== 0) {
         throw `trunk: returned ${n}`;
